@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 type SinglePageFs struct {
@@ -33,9 +35,13 @@ func main() {
 	http.Handle("/files/", http.StripPrefix("/files/", MyFileHandler{http.FileServer(http.Dir("files"))}))
 	http.HandleFunc("/listFiles/", listFiles)
 	http.HandleFunc("/fileInfo/", fileInfo)
+	http.HandleFunc("/uploadFile", uploadFile)
 	http.ListenAndServe(":8080", nil)
 }
 func listFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; utf-8")
 	type Data struct {
 		Name  string `json:"name"`
@@ -48,8 +54,8 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	var resp Resp
 	encoder := json.NewEncoder(w)
-	path := r.URL.Path[len("/listFiles"):]
-	entries, err := os.ReadDir("files" + path)
+	path := filepath.Join("files", r.URL.Path[len("/listFiles"):])
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		resp.Exist = false
 		encoder.Encode(resp)
@@ -66,6 +72,9 @@ func listFiles(w http.ResponseWriter, r *http.Request) {
 	encoder.Encode(resp)
 }
 func fileInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; utf-8")
 	type Data struct {
 		Exist bool  `json:"exist"`
@@ -73,8 +82,8 @@ func fileInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	var data Data
 	encoder := json.NewEncoder(w)
-	path := r.URL.Path[len("/fileInfo"):]
-	info, err := os.Stat("files" + path)
+	path := filepath.Join("files", r.URL.Path[len("/fileInfo"):])
+	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		data.Exist = false
 		encoder.Encode(data)
@@ -83,4 +92,20 @@ func fileInfo(w http.ResponseWriter, r *http.Request) {
 	data.Exist = true
 	data.Size = info.Size()
 	encoder.Encode(data)
+}
+func uploadFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		return
+	}
+	path := filepath.Join("files", r.URL.Path[len("/uploadFile"):])
+	loacalFile, err := os.Create(path)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	_, err = io.Copy(loacalFile, r.Body)
+	if err != nil {
+		os.Remove(path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
