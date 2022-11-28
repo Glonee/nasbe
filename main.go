@@ -32,11 +32,12 @@ func (h MyFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 func main() {
 	http.Handle("/", http.FileServer(SinglePageFs{http.Dir("build")}))
-	http.Handle("/files/", http.StripPrefix("/files/", MyFileHandler{http.FileServer(http.Dir("files"))}))
+	http.Handle("/file/", http.StripPrefix("/file/", MyFileHandler{http.FileServer(http.Dir("files"))}))
 	http.HandleFunc("/listFiles/", listFiles)
 	http.HandleFunc("/fileInfo/", fileInfo)
-	http.HandleFunc("/uploadFile", uploadFile)
-	http.ListenAndServe(":8080", nil)
+	http.HandleFunc("/uploadFile/", uploadFile)
+	http.HandleFunc("/createFolder", createFolder)
+	http.ListenAndServe(":80", nil)
 }
 func listFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
@@ -77,8 +78,9 @@ func fileInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; utf-8")
 	type Data struct {
-		Exist bool  `json:"exist"`
-		Size  int64 `json:"size"`
+		Exist   bool  `json:"exist"`
+		Size    int64 `json:"size"`
+		ModTime int64 `json:"modtime"`
 	}
 	var data Data
 	encoder := json.NewEncoder(w)
@@ -91,21 +93,33 @@ func fileInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Exist = true
 	data.Size = info.Size()
+	data.ModTime = info.ModTime().UnixMilli()
 	encoder.Encode(data)
 }
 func uploadFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		return
 	}
-	path := filepath.Join("files", r.URL.Path[len("/uploadFile"):])
+	path := filepath.Join("files", r.URL.Path[len("/uploadFile/"):])
+	_, err := os.Stat(path)
+	if err == nil {
+		return
+	}
 	loacalFile, err := os.Create(path)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	_, err = io.Copy(loacalFile, r.Body)
+	loacalFile.Close()
 	if err != nil {
 		os.Remove(path)
-		w.WriteHeader(http.StatusInternalServerError)
 	}
+}
+func createFolder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		return
+	}
+	name := r.URL.Query().Get("name")
+	name = filepath.Join("files", name)
+	os.Mkdir(name, 0777)
 }
